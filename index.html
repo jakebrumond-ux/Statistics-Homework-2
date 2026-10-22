@@ -89,6 +89,7 @@ th,td{text-align:left;padding:5px 10px;border-bottom:1px solid var(--line);font-
 <li><b>Caesar’s own weaknesses</b> come from the design, not just the tiny key space: even with a larger alphabet, a fixed substitution preserves frequencies and can be attacked statistically.</li>
 </ul>
 </div>
+
 <div class="card">
   <h2>Assignment Summary</h2>
 
@@ -115,7 +116,6 @@ th,td{text-align:left;padding:5px 10px;border-bottom:1px solid var(--line);font-
     256-bit key space, making these attacks computationally infeasible.
   </p>
 </div>
-
 </main>
 
 <script>
@@ -192,6 +192,106 @@ $("cBtn").onclick = () => {
 
 // ================= Statistics =================
 const entropy = b => { const c = new Map(); b.forEach(x => c.set(x, (c.get(x) || 0) + 1));
-  let h = 0; c.forEach(v => { const p = v / b.length; h -= p * Math.log2(p); });
-  return [h,
+  let h = 0, mx = 0; c.forEach(v => { const p = v / b.length; h -= p * Math.log2(p); mx = Math.max(mx, p); });
+  return [h, mx]; };
 
+const CORPUS = "It was a quiet morning in the old town and the market was just beginning to wake. The bakers had been working since before dawn and the smell of fresh bread drifted through the narrow streets. Children walked to school with their bags on their backs, and the shopkeepers opened their shutters one by one. Near the bridge an old man sat with his newspaper and a small cup of coffee, watching the river move slowly under the stones. He had lived in the town all his life and he knew every face that passed by. Some people said that nothing ever changed here, but he thought that the town changed a little every day, in ways that only those who stayed could notice. When the church bell rang at nine, the square was already full of voices and the day had properly begun.";
+const TEST = "The expedition left the harbour at first light with enough supplies for three weeks at sea. The captain had studied the charts for months and believed that the northern route would be both faster and safer than the one used in previous years. However, the weather soon turned against them, and the crew spent several nights fighting strong winds and heavy rain. By the end of the first week the mood on board had changed, and many of the sailors began to wonder whether the voyage was worth the risk. Still, the captain remained calm and told them that every great journey has its difficult moments, and that patience would be rewarded once the storm had passed.";
+$("corpus").value = CORPUS;
+
+// ---------- 3. entropy comparison ----------
+$("entBtn").onclick = async () => {
+  const text = $("corpus").value.slice(0, 720), enc = new TextEncoder();
+  const pt = enc.encode(text);
+  const cs = enc.encode(caesar(text, 1 + Math.floor(Math.random() * 25)));
+  const { ct } = await eccEncrypt(pt, mul(randK(16), G));
+  const rows = [["Plaintext", pt], ["Caesar ciphertext", cs], ["ECC ciphertext", ct]].map(([n, b]) => {
+    const [h, m] = entropy(b);
+    return `<tr><td>${n}</td><td>${h.toFixed(2)}</td><td>${(m * 100).toFixed(1)}%</td></tr>`;
+  });
+  $("entTable").innerHTML = "<tr><th>Text</th><th>Entropy (bits/byte)</th><th>Top byte share</th></tr>" + rows.join("");
+};
+
+// ---------- 4. Caesar cryptanalysis ----------
+const letters = t => t.toLowerCase().replace(/[^a-z]/g, "");
+let M = null;
+function model(text) {
+  const t = letters(text), f = Array(26).fill(0.01), bg = Array(676).fill(0.01);
+  for (let i = 0; i < t.length; i++) {
+    const a = t.charCodeAt(i) - 97; f[a]++;
+    if (i) bg[(t.charCodeAt(i - 1) - 97) * 26 + a]++;
+  }
+  const fs = f.reduce((a, b) => a + b), bs = bg.reduce((a, b) => a + b);
+  return { f: f.map(x => x / fs), bg: bg.map(x => x / bs) };
+}
+const COMMON = ["the", "and", "ing", "ion", "ent", "her", "tha", "hat", "ere", "for", "was", "you", "ith", "his", "not"];
+const argbest = fn => { let b = 0, bs = -Infinity; for (let s = 0; s < 26; s++) { const v = fn(s); if (v > bs) { bs = v; b = s; } } return b; };
+const counts = d => { const c = Array(26).fill(0); for (const ch of d) c[ch.charCodeAt(0) - 97]++; return c; };
+const methods = {
+  peak: ct => { const am = a => a.indexOf(Math.max(...a)); return (am(counts(ct)) - am(M.f) + 26) % 26; },
+  "chi²": ct => argbest(s => { const d = caesar(ct, -s), c = counts(d); let x = 0;
+    for (let i = 0; i < 26; i++) { const e = M.f[i] * d.length; x += (c[i] - e) ** 2 / e; } return -x; }),
+  bigram: ct => argbest(s => { const d = caesar(ct, -s); let l = 0;
+    for (let i = 1; i < d.length; i++) l += Math.log(M.bg[(d.charCodeAt(i - 1) - 97) * 26 + d.charCodeAt(i) - 97]); return l; }),
+  words: ct => argbest(s => { const d = caesar(ct, -s); return COMMON.reduce((n, w) => n + d.split(w).length - 1, 0); })
+};
+$("atkBtn").onclick = () => {
+  if (!cipherText) { $("atkOut").textContent = "Run section 2 first, then click."; return; }
+  M = model($("corpus").value);
+  const ct = letters(cipherText);
+  $("atkOut").textContent = Object.keys(methods).map(n => {
+    const k = methods[n](ct);
+    return `${n.padEnd(7)} → key ${k}: ${caesar(cipherText, -k)}`;
+  }).join("\n");
+};
+$("expBtn").onclick = async () => {
+  M = model($("corpus").value);
+  const T = letters(TEST), names = Object.keys(methods);
+  let html = "<tr><th>Length</th>" + names.map(n => `<th>${n}</th>`).join("") + "</tr>";
+  for (const L of [10, 20, 30, 50, 100, 200]) {
+    const ok = names.map(() => 0);
+    for (let t = 0; t < 300; t++) {
+      const from = Math.floor(Math.random() * (T.length - L + 1)), key = Math.floor(Math.random() * 26);
+      const ct = caesar(T.substr(from, L), key);
+      names.forEach((n, i) => { if (methods[n](ct) === key) ok[i]++; });
+    }
+    html += `<tr><td>${L}</td>` + ok.map(v => `<td>${(v / 3).toFixed(0)}%</td>`).join("") + "</tr>";
+    $("expTable").innerHTML = html;
+    await sleep();
+  }
+};
+
+// ---------- 5. ECC attacks ----------
+async function report(k, name, t0, work) {
+  const dec = new TextDecoder().decode(await eccDecrypt(st.ct, st.C1, k));
+  $("ecAtk").textContent =
+    `${name}: recovered k = ${k} (${k === st.k ? "correct" : "WRONG"})\n` +
+    `work ≈ ${work} group operations, time ${((performance.now() - t0) / 1000).toFixed(2)} s\n` +
+    `decrypted = "${dec}"`;
+}
+$("bfBtn").onclick = async () => {
+  if (!st) { $("ecAtk").textContent = "Run section 1 first."; return; }
+  const t0 = performance.now(); let P = G, k = 1n;
+  while (!same(P, st.Q)) {
+    P = add(P, G); k++;
+    if (k % 2000n === 0n) { $("ecAtk").textContent = `brute force: tried ${k} keys...`; await sleep(); }
+  }
+  await report(k, "Brute force", t0, k);
+};
+$("bsBtn").onclick = async () => {
+  if (!st) { $("ecAtk").textContent = "Run section 1 first."; return; }
+  const t0 = performance.now(), m = BigInt(Math.ceil(Math.sqrt(2 ** st.bits)));
+  const baby = new Map(); let P = null;
+  for (let j = 1n; j <= m; j++) { P = add(P, G); baby.set(P.x, { j, y: P.y }); }
+  const step = neg(mul(m, G)); let cur = st.Q;
+  for (let i = 0n; i <= m; i++) {
+    if (cur === null) { await report(i * m, "Baby-step giant-step", t0, 2n * m); return; }
+    const hit = baby.get(cur.x);
+    if (hit && hit.y === cur.y) { await report(i * m + hit.j, "Baby-step giant-step", t0, 2n * m); return; }
+    cur = add(cur, step);
+  }
+  $("ecAtk").textContent = "Key not found in the expected range.";
+};
+</script>
+</body>
+</html>
