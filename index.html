@@ -167,3 +167,31 @@ $("cBtn").onclick = () => {
 const entropy = b => { const c = new Map(); b.forEach(x => c.set(x, (c.get(x) || 0) + 1));
   let h = 0; c.forEach(v => { const p = v / b.length; h -= p * Math.log2(p); });
   return [h,
+
+
+<div class="card">
+  <h2>Assignment Summary</h2>
+
+  <p>
+    The toy ECC scheme uses a private key <b>k</b> and public key
+    <b>Q = kG</b>. A sender encrypts a message using the public key and an
+    ephemeral value <b>r</b>, while only the owner of the private key can
+    decrypt it. The Caesar cipher encrypts by shifting each letter by a
+    fixed amount and decrypts by shifting back.
+  </p>
+
+  <p>
+    The Caesar cipher has only 26 possible keys and preserves letter
+    frequencies, making it vulnerable to statistical attacks. The toy ECC
+    scheme produces ciphertext that appears random, but it can still be
+    attacked because its private key is intentionally restricted to a small
+    range.
+  </p>
+
+  <p>
+    The Caesar attack uses letter frequency analysis to recover the key,
+    while the ECC attack uses brute force or baby-step giant-step to search
+    the reduced key space. A real secp256k1 implementation uses a
+    256-bit key space, making these attacks computationally infeasible.
+  </p>
+</div>
