@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Toy ECC (secp256k1) vs Caesar: encryption and attacks</title>
+<style>
+:root{--bg:#fafaf7;--fg:#1d1d1b;--muted:#6b6b66;--card:#fff;--line:#dcdcd4;--accent:#0b6e4f;--key:#fff3c4;color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root{--bg:#17181a;--fg:#ecece6;--muted:#9a9a92;--card:#212326;--line:#383b3f;--accent:#5fd3a6;--key:#3d3410;color-scheme:dark}}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:820px;margin:0 auto;padding:24px 16px}
+h1{font-size:1.4rem;margin:0 0 4px}h2{font-size:1.1rem;margin:0 0 10px}h3{font-size:1rem;margin:14px 0 6px}
+.sub{color:var(--muted);margin:0 0 18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+input,select,textarea{padding:6px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg);font:inherit}
+input[type=text]{width:min(100%,420px)}textarea{width:100%;box-sizing:border-box;min-height:90px}
+button{padding:7px 14px;border:0;border-radius:6px;background:var(--accent);color:var(--bg);font:inherit;cursor:pointer;margin:4px 6px 4px 0}
+pre{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;white-space:pre-wrap;word-break:break-all;font:.85rem/1.45 ui-monospace,Consolas,monospace;margin:8px 0}
+.scroll{overflow-x:auto}table{border-collapse:collapse;width:100%}
+th,td{text-align:left;padding:5px 10px;border-bottom:1px solid var(--line);font-size:.9rem}
+.good{background:var(--key);font-weight:700}small{color:var(--muted)}
+</style>
+</head>
+<body>
+<main>
+<h1>Toy ECC (secp256k1) vs Caesar cipher</h1>
+<p class="sub">Encryption, decryption and two attacks: statistical (Caesar) and key-space search (toy ECC). Everything runs in your browser.</p>
+
+<div class="card">
+<h2>1 · Toy ECC encryption on secp256k1</h2>
+<p>The curve is the real secp256k1 (<code>y² = x³ + 7</code> over a 256-bit prime), but the <b>private key is restricted to a small range</b>. The scheme is ElGamal/ECIES-style: the receiver’s public key is Q = kG; the sender picks a random r, sends C1 = rG and encrypts the message with a keystream derived from the shared point S = rQ = kC1.</p>
+<label>Message: <input type="text" id="msg" value="Meet me at the bridge at noon"></label><br>
+<label>Private-key size: <select id="bits"><option>8</option><option>12</option><option selected>16</option><option>20</option></select> bits</label>
+<button id="encBtn">Generate keys, encrypt and decrypt</button>
+<pre id="eccOut">Click the button.</pre>
+<small>Steps: (1) k random in the small range, Q = kG. (2) Sender picks random 256-bit r, C1 = rG, S = rQ. (3) Keystream = SHA-256(S.x ‖ counter); ciphertext = message XOR keystream. (4) Receiver computes S = kC1 and XORs again. Without k (or r), S cannot be computed; k is the secret, Q and C1 are public.</small>
+</div>
+
+<div class="card">
+<h2>2 · Caesar cipher (same message)</h2>
+<label>Shift key (0–25): <input type="number" id="shift" min="0" max="25" value="7" style="width:70px"></label>
+<button id="cBtn">Encrypt and decrypt</button>
+<pre id="cOut">Click the button.</pre>
+</div>
+
+<div class="card">
+<h2>3 · Statistical comparison of the two ciphertexts</h2>
+<p>Both schemes encrypt the same ~700-letter English text; we measure Shannon entropy per byte and the share of the most frequent byte.</p>
+<button id="entBtn">Measure</button>
+<div class="scroll"><table id="entTable"></table></div>
+<h3>Similarities and differences</h3>
+<ul>
+<li><b>Procedure.</b> Both are symmetric in the last step: Caesar adds the key to each letter and subtracts it to decrypt; the ECC scheme XORs a keystream and XORs it again. The ECC scheme is a <i>public-key</i> scheme: the sender needs only Q, and only the holder of k can compute S. Caesar is purely symmetric: both sides share the same secret.</li>
+<li><b>Key space.</b> Caesar has 26 keys (≈4.7 bits). The toy ECC scheme has 2<sup>b</sup> keys for a b-bit restricted key (here 2<sup>8</sup>–2<sup>20</sup>); proper secp256k1 has about 2<sup>256</sup> keys.</li>
+<li><b>Statistics.</b> Caesar is a fixed substitution: the letter histogram is only shifted, so entropy equals the plaintext’s (≈4 bits) and the most frequent letter stays about as frequent. The ECC ciphertext is XORed with a hash-derived keystream, so bytes look near uniform (entropy close to 8 bits, limited only by the sample size). Statistics reveal nothing about k.</li>
+</ul>
+</div>
+
+<div class="card">
+<h2>4 · Statistical cryptanalysis of the Caesar cipher</h2>
+<p>Reference corpus (editable; paste a bigger English text for better results). Letter and bigram frequencies are learned from it.</p>
+<textarea id="corpus"></textarea>
+<button id="atkBtn">Attack the ciphertext from section 2</button>
+<pre id="atkOut">Run section 2 first, then click.</pre>
+<h3>Success rate vs ciphertext length</h3>
+<p>For each length, 300 random substrings of a different test text are encrypted with random keys and attacked.</p>
+<button id="expBtn">Run experiment</button>
+<div class="scroll"><table id="expTable"></table></div>
+<small>Methods: <b>peak</b> = most frequent ciphertext letter ↔ most frequent corpus letter; <b>chi²</b> = full letter-frequency fit over all 26 shifts; <b>bigram</b> = log-likelihood of letter pairs; <b>words</b> = exhaustive search scoring common substrings (the, and, ing, …).</small>
+</div>
+
+<div class="card">
+<h2>5 · Attack on the toy ECC scheme (restricted key space)</h2>
+<p>The attacker knows Q = kG, G and the bit-length of k. Goal: find k, then decrypt with S = kC1. Run section 1 first.</p>
+<button id="bfBtn">Brute force (try k = 1, 2, 3 …)</button>
+<button id="bsBtn">Baby-step giant-step (~√N work)</button>
+<pre id="ecAtk">Run section 1 first.</pre>
+<small>At 16 bits brute force takes a few seconds; at 20 bits expect minutes, while baby-step giant-step stays instant.</small>
+</div>
+
+<div class="card">
+<h2>6 · Discussion</h2>
+<ul>
+<li><b>Different attacks, different information.</b> The Caesar attack uses <i>statistics of the language</i>: the ciphertext leaks the letter distribution, so we can score candidate keys without any known plaintext. Short texts fail (see the table) because the sample is too small. The ECC attack uses no statistics at all: the ciphertext looks random, and we only exploit that k lives in a small set, checking each candidate against the public key Q. It succeeds with certainty, independent of message length.</li>
+<li><b>Why it does not scale.</b> Brute force costs about 2<sup>b</sup> point additions; baby-step giant-step (or Pollard’s rho) about 2<sup>b/2</sup> with memory for BSGS, rho needs almost none. For the full secp256k1 group (order ≈ 2<sup>256</sup>) that is ≈ 2<sup>128</sup> operations, far beyond any computer. No known algorithm solves the ECDLP on a well-chosen curve much faster than this generic square-root bound.</li>
+<li><b>Weakness from the restricted key space:</b> exactly the two attacks above. A uniformly random k in the full range removes them.</li>
+<li><b>Weaknesses from the toy design itself (even with a large key):</b> no authentication (a MAC or AEAD is missing), so ciphertexts are malleable: flipping a ciphertext bit flips the same plaintext bit. The keystream is a home-made KDF of S.x only (a standard KDF/AEAD should be used). If r is ever reused or generated badly, two messages share a keystream and XORing them leaks the plaintexts; known-plaintext reveals the keystream. The message length is not hidden. There is also no protection against invalid-curve points sent as C1 (C1 should be validated).</li>
+<li><b>Caesar’s own weaknesses</b> come from the design, not just the tiny key space: even with a larger alphabet, a fixed substitution preserves frequencies and can be attacked statistically.</li>
+</ul>
+</div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const hex = (v, l = 64) => v.toString(16).padStart(l, "0");
+const bytesHex = b => Array.from(b, x => x.toString(16).padStart(2, "0")).join("");
+const sleep = () => new Promise(r => setTimeout(r));
+
+// ================= secp256k1 =================
+const FP = (1n << 256n) - (1n << 32n) - 977n;
+const N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141n;
+const G = { x: 0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798n,
+            y: 0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8n };
+const md = a => ((a % FP) + FP) % FP;
+function inv(a) {                                   // extended Euclid
+  let r0 = md(a), r1 = FP, s0 = 1n, s1 = 0n;
+  while (r1 !== 0n) { const q = r0 / r1; [r0, r1] = [r1, r0 - q * r1]; [s0, s1] = [s1, s0 - q * s1]; }
+  return md(s0);
+}
+function add(P, Q) {                                // null = point at infinity
+  if (!P) return Q; if (!Q) return P;
+  if (P.x === Q.x && md(P.y + Q.y) === 0n) return null;
+  const l = P.x === Q.x ? md(3n * P.x * P.x * inv(2n * P.y)) : md((Q.y - P.y) * inv(Q.x - P.x));
+  const x = md(l * l - P.x - Q.x);
+  return { x, y: md(l * (P.x - x) - P.y) };
+}
+const neg = P => P && { x: P.x, y: md(-P.y) };
+function mul(k, P) {                                // double-and-add
+  let r = null, a = P;
+  while (k > 0n) { if (k & 1n) r = add(r, a); a = add(a, a); k >>= 1n; }
+  return r;
+}
+const same = (A, B) => A && B && A.x === B.x && A.y === B.y;
+
+async function keystream(S, len) {
+  const out = new Uint8Array(len);
+  for (let c = 0, o = 0; o < len; c++) {
+    const d = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(hex(S.x) + ":" + c)));
+    for (let i = 0; i < 32 && o < len; i++) out[o++] = d[i];
+  }
+  return out;
+}
+async function xorWith(S, data) { const ks = await keystream(S, data.length); return data.map((b, i) => b ^ ks[i]); }
+function randR() { let v = 0n; for (const x of crypto.getRandomValues(new Uint8Array(32))) v = (v << 8n) | BigInt(x); return v % (N - 1n) + 1n; }
+function randK(bits) { const half = 2 ** (bits - 1); return BigInt(half + crypto.getRandomValues(new Uint32Array(1))[0] % half); }
+async function eccEncrypt(bytes, Q) { const r = randR(); return { C1: mul(r, G), ct: await xorWith(mul(r, Q), bytes) }; }
+const eccDecrypt = (ct, C1, k) => xorWith(mul(k, C1), ct);
+
+let st = null;   // {k, Q, C1, ct, bits}
+$("encBtn").onclick = async () => {
+  const bits = +$("bits").value, k = randK(bits), Q = mul(k, G);
+  const msg = new TextEncoder().encode($("msg").value);
+  const { C1, ct } = await eccEncrypt(msg, Q);
+  const dec = new TextDecoder().decode(await eccDecrypt(ct, C1, k));
+  st = { k, Q, C1, ct, bits };
+  $("eccOut").textContent =
+    `private key k = ${k} (${bits}-bit range, secret)\n` +
+    `public key Q = kG:\n  x = ${hex(Q.x)}\n  y = ${hex(Q.y)}\n` +
+    `C1 = rG:\n  x = ${hex(C1.x)}\n  y = ${hex(C1.y)}\n` +
+    `ciphertext (hex) = ${bytesHex(ct)}\ndecrypted = "${dec}"`;
+};
+
+// ================= Caesar =================
+const caesar = (t, s) => t.replace(/[a-z]/gi, c => {
+  const b = c <= "Z" ? 65 : 97;
+  return String.fromCharCode((((c.charCodeAt(0) - b + s) % 26) + 26) % 26 + b);
+});
+let cipherText = "";
+$("cBtn").onclick = () => {
+  const s = ((+$("shift").value % 26) + 26) % 26, m = $("msg").value;
+  cipherText = caesar(m, s);
+  $("cOut").textContent = `key = ${s}\nciphertext = ${cipherText}\ndecrypted  = ${caesar(cipherText, -s)}`;
+};
+
+// ================= Statistics =================
+const entropy = b => { const c = new Map(); b.forEach(x => c.set(x, (c.get(x) || 0) + 1));
+  let h = 0; c.forEach(v => { const p = v / b.length; h -= p * Math.log2(p); });
+  return [h,
